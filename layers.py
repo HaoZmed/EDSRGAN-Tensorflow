@@ -23,20 +23,24 @@ def subpixel(x, factor, name):
             factor - integer indicator the factor of superresolution
         Output:
         out - 4D tensor [batch_size, height*factor, width*factor, output_channel]
+
+        Ref: 
+            - `Real-Time Single Image and Video Super-Resolution Using an Efficient
+                Sub-Pixel Convolutional Neural Network
+            - tensorlayer
+            - https://github.com/zsdonghao/tensorlayer/blob/ef533699622ab124e28526bbe97cb2edd01e54b8/tensorlayer/layers.py#L2238
         """
         batch_size, height, width, input_channel = x.get_shape().as_list()
         list_x = tf.split(x, factor, axis=3)
         x = tf.concat(list_x, axis=2)
-        x = tf.reshape(x, [batch_size, height*factor, width*factor, 1])
-        return x
-
-    input_channel = x.get_shape().as_list()[-1]
-    output_channel = input_channel / factor**2
-
-    if output_channel != 1:
+        output_channel = int(input_channel / factor**2)
+        x = tf.reshape(x, [batch_size, height*factor, width*factor, output_channel])
         return x
 
     with tf.variable_scope(name) as scope:
-        x = _phase_shift(x, factor)
+        return _phase_shift(x, factor)
 
-    return x
+
+### resnet block - EDSR style
+def resnet_edsr(x):
+    pass
