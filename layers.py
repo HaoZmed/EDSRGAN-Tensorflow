@@ -42,5 +42,46 @@ def subpixel(x, factor, name):
 
 
 ### resnet block - EDSR style
-def resnet_edsr(x):
-    pass
+def ResBlock_EDSR(x, n_filters, multiplier=0.1, name_scope='resblock'):
+    """
+    Define a ResBlock specified by the EDSR paper. This is DIFFERENT
+    from the conventional ResBlock
+    """
+    # with tf.variable_scope(name_scope) as scope:
+    #     net = tf.layers.conv2d(x, n_filters, (3, 3), padding='same',
+    #     activation=tf.nn.relu, name='conv1')
+    #     net = tf.layers.conv2d(net, n_filters, (3, 3), padding='same',
+    #     name='conv2')
+    #     net = tf.scalar_mul(multiplier, net)
+    #     out = tf.add(x, net, name='add')
+    # return out
+    with tf.variable_scope(name_scope):
+
+        with tf.name_scope('conv_1') as scope: 
+            weights = tf.get_variable(scope + "weights", shape=[3, 3, n_filters, n_filters],
+                initializer=tf.truncated_normal_initializer)
+            bias = tf.get_variable(scope + "bias", shape=[n_filters],
+                initializer=tf.constant_initializer(0.0))
+            net = tf.nn.conv2d(x, weights, strides=[1, 1, 1, 1], padding='SAME')
+            act = tf.nn.relu(tf.add(net, bias), name='activation_2')
+
+            tf.summary.histogram(scope + 'weights', weights)
+            tf.summary.histogram(scope + 'bias', bias)
+            tf.summary.histogram(scope + 'activation', act)
+
+        with tf.name_scope('conv_2') as scope:
+            weights = tf.get_variable(scope + "weights", shape=[3, 3, n_filters, n_filters],
+                initializer=tf.truncated_normal_initializer)
+            bias = tf.get_variable(scope + "bias", shape=[n_filters],
+                initializer=tf.constant_initializer(0.0))
+            net = tf.nn.conv2d(act, weights, strides=[1, 1, 1, 1], padding='SAME')
+            act = tf.nn.relu(tf.add(net, bias), name=scope + 'activation_2')
+
+            tf.summary.histogram(scope + 'weights', weights)
+            tf.summary.histogram(scope + 'bias', bias)
+            tf.summary.histogram(scope + 'activation', act)
+
+        net = tf.scalar_mul(multiplier, net)
+        out = tf.add(x, net, name='elementwise_addition')
+    
+    return out
