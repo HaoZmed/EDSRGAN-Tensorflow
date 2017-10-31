@@ -47,41 +47,75 @@ def ResBlock_EDSR(x, n_filters, multiplier=0.1, name_scope='resblock'):
     Define a ResBlock specified by the EDSR paper. This is DIFFERENT
     from the conventional ResBlock
     """
-    # with tf.variable_scope(name_scope) as scope:
-    #     net = tf.layers.conv2d(x, n_filters, (3, 3), padding='same',
-    #     activation=tf.nn.relu, name='conv1')
-    #     net = tf.layers.conv2d(net, n_filters, (3, 3), padding='same',
-    #     name='conv2')
-    #     net = tf.scalar_mul(multiplier, net)
-    #     out = tf.add(x, net, name='add')
-    # return out
     with tf.variable_scope(name_scope):
 
         with tf.name_scope('conv_1') as scope: 
-            weights = tf.get_variable(scope + "weights", shape=[3, 3, n_filters, n_filters],
+            weights = tf.get_variable("conv_1/weights", shape=[3, 3, n_filters, n_filters],
                 initializer=tf.truncated_normal_initializer)
-            bias = tf.get_variable(scope + "bias", shape=[n_filters],
+            bias = tf.get_variable("conv_1/bias", shape=[n_filters],
                 initializer=tf.constant_initializer(0.0))
             net = tf.nn.conv2d(x, weights, strides=[1, 1, 1, 1], padding='SAME')
-            act = tf.nn.relu(tf.add(net, bias), name='activation_2')
+            act = tf.nn.relu(tf.add(net, bias), name='conv_1/activation_1')
 
-            tf.summary.histogram(scope + 'weights', weights)
-            tf.summary.histogram(scope + 'bias', bias)
-            tf.summary.histogram(scope + 'activation', act)
+            tf.summary.histogram('conv_1/weights', weights)
+            tf.summary.histogram('conv_1/bias', bias)
+            tf.summary.histogram('conv_1/activation', act)
 
         with tf.name_scope('conv_2') as scope:
-            weights = tf.get_variable(scope + "weights", shape=[3, 3, n_filters, n_filters],
+            weights = tf.get_variable("conv_2/weights", shape=[3, 3, n_filters, n_filters],
                 initializer=tf.truncated_normal_initializer)
-            bias = tf.get_variable(scope + "bias", shape=[n_filters],
+            bias = tf.get_variable("conv_2/bias", shape=[n_filters],
                 initializer=tf.constant_initializer(0.0))
             net = tf.nn.conv2d(act, weights, strides=[1, 1, 1, 1], padding='SAME')
-            act = tf.nn.relu(tf.add(net, bias), name=scope + 'activation_2')
+            act = tf.nn.relu(tf.add(net, bias), name='conv_2/activation_2')
 
-            tf.summary.histogram(scope + 'weights', weights)
-            tf.summary.histogram(scope + 'bias', bias)
-            tf.summary.histogram(scope + 'activation', act)
+            tf.summary.histogram('conv_2/weights', weights)
+            tf.summary.histogram('conv_2/bias', bias)
+            tf.summary.histogram('conv_2/activation', act)
 
-        net = tf.scalar_mul(multiplier, net)
-        out = tf.add(x, net, name='elementwise_addition')
+        with tf.name_scope('elementwise_add') as scope:
+            net = tf.scalar_mul(multiplier, net)
+            out = tf.add(x, net, name='conv_2/elementwise_addition')
     
     return out
+
+### convolution layer
+def Conv2d(x, n_filters_in, n_filters_out, name_scope='Conv'):
+
+    with tf.variable_scope(name_scope) as scope:
+
+        weights = tf.get_variable("weights", shape=[3, 3, n_filters_in, n_filters_out],
+            initializer=tf.truncated_normal_initializer)
+        bias = tf.get_variable("bias", shape=[n_filters_out],
+            initializer=tf.constant_initializer(0.0))
+        net = tf.nn.conv2d(x, weights, strides=[1, 1, 1, 1], padding='SAME')
+        act = tf.nn.relu(tf.add(net, bias), name='activation_2')
+
+        tf.summary.histogram('weights', weights)
+        tf.summary.histogram('bias', bias)
+        tf.summary.histogram('activation', act)
+
+        return act
+
+### Upsampler
+def Upsampler(x, name_scope='Upsampler'):
+
+    with tf.variable_scope(name_scope):
+        
+        with tf.name_scope('Conv'):
+            # GET SHAPE OF x
+            n_filters = int(x.get_shape()[-1])
+            weights = tf.get_variable("conv/weights", shape=[3, 3, n_filters, n_filters],
+                initializer=tf.truncated_normal_initializer)
+            bias = tf.get_variable("conv/bias", shape=[n_filters],
+                initializer=tf.constant_initializer(0.0))
+            net = tf.nn.conv2d(x, weights, strides=[1, 1, 1, 1], padding='SAME')
+            act = tf.nn.relu(tf.add(net, bias), name='conv/activation_1')
+
+            tf.summary.histogram('conv/weights', weights)
+            tf.summary.histogram('conv/bias', bias)
+            tf.summary.histogram('conv/activation', act)
+
+        return subpixel(act, factor=2, name='subpixel')
+
+        
