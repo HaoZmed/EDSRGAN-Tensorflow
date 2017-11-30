@@ -12,6 +12,7 @@ import tensorflow as tf
 import numpy as np
 import os
 from skimage.io import imread
+from scipy.misc import imresize
 
 
 # DATA RELATED UTILS
@@ -34,7 +35,8 @@ class Data(object):
         its corresponding high-resolution images should be matched.
     """
 
-    def __init__(self, input_data_dir, save_dir, name, mode, output_data_dir='', shuffle=True, random_state=99):
+    def __init__(self, input_data_dir, save_dir, name, mode,
+                 output_data_dir='', shuffle=True, random_state=99):
         self.input_data_dir = input_data_dir
         self.output_data_dir = output_data_dir
         self.save_dir = save_dir
@@ -116,6 +118,7 @@ class Data(object):
                         break
                     in_image = imread(input_image_list[i]).astype('int32')
                     out_image = imread(output_image_list[i]).astype('int32')
+
                     # If the image is in grayscale, resize to (h, w, 1)
                     if len(in_image.shape) < 3:
                         in_image = in_image.reshape(in_image.shape + (1,))
@@ -134,20 +137,32 @@ class Data(object):
         else:
             for index_file in range(num_files):
                 filename = os.path.join(
-                    self.save_dir, self.name + str(index_file + 1) + '.tfrecords')
+                    self.save_dir, self.name + '_' + str(index_file + 1) + '.tfrecords')
                 print('Writing {}'.format(filename))
                 writer = tf.python_io.TFRecordWriter(filename)
                 for _ in range(int(len(input_image_list) / num_files)):
                     if i >= len(input_image_list):
                         break
                     in_image = imread(input_image_list[i]).astype('int32')
+                    out_image = imread(input_image_list[i]).astype('float32')
+                    h, w = in_image.shape
+                    img_min, img_max = out_image.min(), out_image.max()
+                    out_image = imresize(
+                        out_image, (4 * h, 4 * w), interp='bicubic', mode=None)
+                    out_image = (out_image - out_image.min()) / (out_image.max() - out_image.min()) *\
+                        (img_max - img_min) + img_min
+                    out_image = out_image.astype('int32')
                     # If the image is in grayscale, resize to (h, w, 1)
                     if len(in_image.shape) < 3:
                         in_image = in_image.reshape(in_image.shape + (1,))
+                        out_image = out_image.reshape(out_image.shape + (1,))
                     in_shape = np.array(in_image.shape, np.int32)
+                    out_shape = np.array(out_image.shape, np.int32)
                     sample = tf.train.Example(features=tf.train.Features(feature={
                         'in_shape': self._bytes_feature(in_shape.tostring()),
-                        'in_image_raw': self._bytes_feature(in_image.tostring())
+                        'out_shape': self._bytes_feature(out_shape.tostring()),
+                        'in_image_raw': self._bytes_feature(in_image.tostring()),
+                        'out_image_raw': self._bytes_feature(out_image.tostring())
                     }))
                     writer.write(sample.SerializeToString())
                     i += 1
@@ -162,7 +177,7 @@ class Preprocessor(object):
         self.crop_size_out = crop_size_out
         self.channel_in = channel_in
 
-    def _parse_function(self, example_proto, max=255):
+    def _parse_function(self, example_proto, max=2**16 - 1):
         features = {'in_shape': tf.FixedLenFeature([], tf.string),
                     'out_shape': tf.FixedLenFeature([], tf.string),
                     'in_image_raw': tf.FixedLenFeature([], tf.string),
@@ -181,6 +196,28 @@ class Preprocessor(object):
 
         return in_image, out_image
 
+    def _preprocessing_function_nocrop(self, image_in, image_out):
+
+        in_shape = tf.shape(image_in)
+        h_offset = tf.constant(0, dtype=tf.int32)
+        w_offset = tf.constant(0, dtype=tf.int32)
+
+        box_start = tf.stack([h_offset, w_offset, tf.constant(0)])
+        box_size = tf.constant(
+            (self.crop_size_in, self.crop_size_in, self.channel_in))
+        cropped_image_in = tf.slice(image_in, box_start, box_size)
+
+        out_shape = tf.shape(image_out)
+        factor = int(self.crop_size_out / self.crop_size_in)
+        h_offset = tf.scalar_mul(factor, h_offset)
+        w_offset = tf.scalar_mul(factor, w_offset)
+        box_start = tf.stack([h_offset, w_offset, tf.constant(0)])
+        box_size = tf.constant(
+            (self.crop_size_out, self.crop_size_out, self.channel_in))
+        cropped_image_out = tf.slice(image_out, box_start, box_size)
+
+        return cropped_image_in, cropped_image_out
+
     def _preprocessing_function(self, image_in, image_out):
 
         in_shape = tf.shape(image_in)
@@ -188,17 +225,23 @@ class Preprocessor(object):
             [], minval=0, maxval=in_shape[0] - self.crop_size_in, dtype=tf.int32)
         w_offset = tf.random_uniform(
             [], minval=0, maxval=in_shape[1] - self.crop_size_in, dtype=tf.int32)
+
         box_start = tf.stack([h_offset, w_offset, tf.constant(0)])
         box_size = tf.constant(
             (self.crop_size_in, self.crop_size_in, self.channel_in))
         cropped_image_in = tf.slice(image_in, box_start, box_size)
 
         out_shape = tf.shape(image_out)
-        h_offset = tf.scalar_mul(4, h_offset)
-        w_offset = tf.scalar_mul(4, w_offset)
+        factor = int(self.crop_size_out / self.crop_size_in)
+        h_offset = tf.scalar_mul(factor, h_offset)
+        w_offset = tf.scalar_mul(factor, w_offset)
         box_start = tf.stack([h_offset, w_offset, tf.constant(0)])
         box_size = tf.constant(
             (self.crop_size_out, self.crop_size_out, self.channel_in))
         cropped_image_out = tf.slice(image_out, box_start, box_size)
 
         return cropped_image_in, cropped_image_out
+
+    def _preprocessing_function_validate(self, image_in, image_out):
+
+        return image_in, image_out
